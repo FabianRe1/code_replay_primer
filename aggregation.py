@@ -163,39 +163,65 @@ def _windowed_for_curvefit(t, amplitude, duration, onset, offset):
     return _windowed_sinusoid(t, amplitude, duration, onset, offset, taper_frac=0.15)
 
 
+def _full_cycle_visible(onset, duration, t_min, t_max, min_cycle_frac=0.90):
+    """Check that at least *min_cycle_frac* of the cycle falls within the data range.
+
+    This ensures both the positive and negative lobes of the sinusoid are
+    captured by the data, preventing half-cycle fits that chase a single
+    strong deflection.
+    """
+    cycle_start = onset
+    cycle_end = onset + duration
+    overlap_start = max(cycle_start, t_min)
+    overlap_end = min(cycle_end, t_max)
+    overlap = max(0.0, overlap_end - overlap_start)
+    return (overlap / duration) >= min_cycle_frac
+
+
 def fit_windowed_sinusoid(
     trs: np.ndarray,
     slopes: np.ndarray,
     duration_min: float = 3.0,
     duration_max: float = 12.0,
-    n_restarts: int = 5,
+    n_restarts: int = 10,
+    min_cycle_frac: float = 0.90,
 ) -> dict:
     """
     Fit windowed single-cycle sinusoidal model.
-    
+
+    Requires both positive and negative phases of the sinusoid to be visible
+    within the data range (controlled by min_cycle_frac). Fits where the
+    cycle extends too far outside the data are rejected, preventing
+    half-cycle fits that chase a single strong deflection.
+
     Returns dict with 'amplitude', 'duration', 'onset', 'offset',
     'frequency' (=1/duration), 'r_squared', 'fit_success'.
     """
     trs = np.asarray(trs, dtype=float)
     slopes = np.asarray(slopes, dtype=float)
     valid = ~np.isnan(slopes)
-    
+
     if valid.sum() < 4:
         return {'amplitude': np.nan, 'duration': np.nan, 'onset': np.nan,
                 'r_squared': np.nan, 'fit_success': False}
-    
+
     t, y = trs[valid], slopes[valid]
     t_min, t_max = t.min(), t.max()
     y_range = np.ptp(y)
     y_mean = np.mean(y)
     a0 = max(y_range / 2, 0.01)
-    
-    lower = [-np.inf, duration_min, t_min - 1.0, -np.inf]
-    upper = [np.inf, duration_max, t_max, np.inf]
-    
+
+    # Tighten onset bounds: cycle must start no earlier than data start
+    # and must leave room for at least duration_min within the data range.
+    onset_lower = t_min
+    onset_upper = max(t_min, t_max - duration_min)
+
+    lower = [-np.inf, duration_min, onset_lower, -np.inf]
+    upper = [np.inf, duration_max, onset_upper, np.inf]
+
     best_result, best_residual = None, np.inf
     rng = np.random.default_rng(42)
-    
+
     for restart in range(n_restarts):
         if restart == 0:
             p0 = [a0, (t_max - t_min) * 0.8, t_min, y_mean]
@@ -204,28 +230,33 @@ def fit_windowed_sinusoid(
         else:
             p0 = [rng.uniform(-a0*2, a0*2),
                   rng.uniform(duration_min, min(duration_max, t_max - t_min + 2)),
-                  rng.uniform(t_min - 0.5, t_min + (t_max - t_min) * 0.3),
+                  rng.uniform(onset_lower, onset_lower + (onset_upper - onset_lower) * 0.5),
                   y_mean + rng.normal(0, a0*0.1)]
+        # Clip p0 to bounds
+        p0 = [max(lo, min(hi, v)) for v, lo, hi in zip(p0, lower, upper)]
         try:
             popt, _ = curve_fit(_windowed_for_curvefit, t, y, p0=p0,
                                bounds=(lower, upper), maxfev=5000)
+            # Reject fits where the full cycle is not visible in the data
+            if not _full_cycle_visible(popt[2], popt[1], t_min, t_max, min_cycle_frac):
+                continue
             resid = np.sum((y - _windowed_for_curvefit(t, *popt))**2)
             if resid < best_residual:
                 best_residual = resid
                 best_result = popt
         except (RuntimeError, ValueError):
             continue
-    
+
     if best_result is None:
         return {'amplitude': np.nan, 'duration': np.nan, 'onset': np.nan,
                 'r_squared': np.nan, 'fit_success': False}
-    
+
     amplitude, duration, onset, offset = best_result
     y_hat = _windowed_for_curvefit(t, *best_result)
     ss_res = np.sum((y - y_hat)**2)
     ss_tot = np.sum((y - np.mean(y))**2)
     r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
-    
+
     return {'amplitude': amplitude, 'duration': duration, 'onset': onset,
             'offset': offset, 'frequency': 1.0 / duration,
             'r_squared': r_squared, 'fit_success': True}

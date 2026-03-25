@@ -7,13 +7,12 @@ Demonstrates the SODA method step by step:
 3. Multiple replay events: overlapping responses
 4. Trial averaging: phase misalignment across trials
 
-Run from the src/ directory.
+Run from the code_replay_primer/ directory.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-from pathlib import Path
 
 from response_model import (
     ResponseParams, single_event_response, two_event_difference,
@@ -27,28 +26,16 @@ from classifier_sim import (
     simulate_ideal_sequence_trial, simulate_heterogeneous_trial,
     simulate_multiple_replay_events, simulate_trial_averaging,
 )
+from viz_style import (
+    setup_style, add_panel_label, shade_periods, add_zero_line,
+    add_chance_line, save_figure, despine, format_isi_label,
+    get_item_colors, get_speed_colors, speed_color,
+    BLUE, ORANGE, GREY, BLACK, LIGHT_GREY,
+    FWD_COLOR, BWD_COLOR, FWD_ALPHA, BWD_ALPHA,
+    FULL_WIDTH, ONE_HALF_COL,
+)
 
-# -- Setup --
-FIGDIR = Path(__file__).parent.parent / "figures"
-FIGDIR.mkdir(exist_ok=True)
-
-plt.rcParams.update({
-    'font.size': 11,
-    'axes.labelsize': 12,
-    'axes.titlesize': 13,
-    'figure.dpi': 150,
-    'savefig.dpi': 300,
-    'savefig.bbox': 'tight',
-})
-
-COLORS = plt.cm.Set2(np.linspace(0, 1, 8))
-SPEED_COLORS = {
-    0.032: '#1b3a4b',
-    0.064: '#4a7c9b',
-    0.128: '#7fb3d3',
-    0.512: '#d4a843',
-    2.048: '#f0c75e',
-}
+setup_style()
 
 
 # =============================================================================
@@ -57,99 +44,107 @@ SPEED_COLORS = {
 
 def sim1_ideal_case():
     """Reproduce the core SODA demonstration from the paper."""
-    
+
     params = ResponseParams()
     n_items = 5
     n_trs = 13
     t = np.arange(1, n_trs + 1, dtype=float)
     t_fine = np.linspace(0, 14, 500)
-    
-    fig = plt.figure(figsize=(16, 12))
-    gs = gridspec.GridSpec(3, 3, hspace=0.4, wspace=0.35)
-    
+    item_colors = get_item_colors(n_items)
+    spd_colors = get_speed_colors()
+
+    fig = plt.figure(figsize=(FULL_WIDTH, FULL_WIDTH * 0.78))
+    gs = gridspec.GridSpec(3, 3, hspace=0.50, wspace=0.45)
+
     # --- Panel A: Single event response ---
     ax_a = fig.add_subplot(gs[0, 0])
     response = single_event_response(t_fine, params)
-    ax_a.plot(t_fine, response, 'k-', lw=2)
-    ax_a.axhline(params.baseline, color='gray', ls='--', alpha=0.5)
-    ax_a.set_xlabel('Time (TRs)')
-    ax_a.set_ylabel('Probability (%)')
-    ax_a.set_title('A) Single event response')
+    ax_a.plot(t_fine, response, color=BLACK, lw=1.5)
+    add_chance_line(ax_a, chance=params.baseline)
+    ax_a.set_xlabel("Time (TRs)")
+    ax_a.set_ylabel("Probability (%)")
     ax_a.set_xlim(0, 10)
-    
+    add_panel_label(ax_a, "A")
+
     # --- Panel B: Two-event difference for different deltas ---
     ax_b = fig.add_subplot(gs[0, 1])
-    for isi, color in SPEED_COLORS.items():
+    for isi, color in spd_colors.items():
         delta = sequence_delta(n_items, isi)
         diff = two_event_difference(t_fine, delta, params)
-        ax_b.plot(t_fine, diff, color=color, lw=1.5, label=f'{int(isi*1000)} ms')
-    ax_b.axhline(0, color='gray', ls='--', alpha=0.5)
-    ax_b.set_xlabel('Time (TRs)')
-    ax_b.set_ylabel('Probability difference')
-    ax_b.set_title('B) Event difference by speed')
-    ax_b.legend(fontsize=8, title='ISI')
+        ax_b.plot(t_fine, diff, color=color, lw=0.9,
+                  label=format_isi_label(isi))
+    add_zero_line(ax_b)
+    ax_b.set_xlabel("Time (TRs)")
+    ax_b.set_ylabel("Prob. difference")
+    ax_b.legend(fontsize=5, title="ISI", title_fontsize=6,
+                loc="upper left", handlelength=1.2)
     ax_b.set_xlim(0, 14)
-    
+    add_panel_label(ax_b, "B")
+
     # --- Panel C: Probability timecourses for 32ms sequence ---
     ax_c = fig.add_subplot(gs[0, 2])
     probs_fast = simulate_ideal_sequence_trial(
         n_items=n_items, isi_seconds=0.032, n_trs=n_trs
     )
     for i in range(n_items):
-        ax_c.plot(t, probs_fast[i], 'o-', color=COLORS[i], lw=1.5,
-                  markersize=4, label=f'Item {i+1}')
-    ax_c.set_xlabel('Time (TRs)')
-    ax_c.set_ylabel('Probability (%)')
-    ax_c.set_title('C) Classifier probs (32 ms ISI)')
-    ax_c.legend(fontsize=7, ncol=2)
-    
+        ax_c.plot(t, probs_fast[i], "o-", color=item_colors[i], lw=0.8,
+                  markersize=2.5, label=f"Item {i+1}")
+    ax_c.set_xlabel("Time (TRs)")
+    ax_c.set_ylabel("Probability (%)")
+    ax_c.legend(fontsize=5, ncol=1, loc="upper right", handlelength=1.0,
+                borderpad=0.2, labelspacing=0.2)
+    add_panel_label(ax_c, "C")
+
     # --- Panels D-F: Probability timecourses for 128, 512, 2048 ms ---
+    panel_labels_d = ["D", "E", "F"]
     for idx, isi in enumerate([0.128, 0.512, 2.048]):
         ax = fig.add_subplot(gs[1, idx])
         probs = simulate_ideal_sequence_trial(
             n_items=n_items, isi_seconds=isi, n_trs=n_trs
         )
         for i in range(n_items):
-            ax.plot(t, probs[i], 'o-', color=COLORS[i], lw=1.5, markersize=4)
-        
-        # Shade forward/backward periods
+            ax.plot(t, probs[i], "o-", color=item_colors[i], lw=0.8,
+                    markersize=2.5)
+
         delta = sequence_delta(n_items, isi)
         fwd, bwd = compute_periods(delta, params)
-        ax.axvspan(max(fwd[0], t[0]), min(fwd[1], t[-1]),
-                   alpha=0.1, color='blue', label='Forward')
-        ax.axvspan(max(bwd[0], t[0]), min(bwd[1], t[-1]),
-                   alpha=0.1, color='red', label='Backward')
-        
-        ax.set_xlabel('Time (TRs)')
-        ax.set_ylabel('Probability (%)')
-        ax.set_title(f'D{idx+1}) Probs ({int(isi*1000)} ms ISI)')
+        shade_periods(ax, fwd, bwd)
+
+        ax.set_xlabel("Time (TRs)")
         if idx == 0:
-            ax.legend(fontsize=7, loc='upper right')
-    
+            ax.set_ylabel("Probability (%)")
+        ax.text(0.97, 0.97, format_isi_label(isi),
+                transform=ax.transAxes, fontsize=6, ha="right", va="top",
+                color=GREY)
+        add_panel_label(ax, panel_labels_d[idx])
+
     # --- Panels G-I: SODA slope timecourses ---
+    panel_labels_g = ["G", "H", "I"]
     for idx, isi in enumerate([0.032, 0.128, 2.048]):
         ax = fig.add_subplot(gs[2, idx])
         probs = simulate_ideal_sequence_trial(
             n_items=n_items, isi_seconds=isi, n_trs=n_trs
         )
         slopes = compute_slope_timecourse(probs)
-        
-        ax.plot(t, slopes, 'o-', color=SPEED_COLORS[isi], lw=2, markersize=5)
-        ax.axhline(0, color='gray', ls='--', alpha=0.5)
+
+        ax.plot(t, slopes, "o-", color=speed_color(isi), lw=1.5, markersize=3)
+        add_zero_line(ax)
         ax.fill_between(t, slopes, 0, where=slopes > 0,
-                        alpha=0.2, color='blue', label='Forward')
+                        alpha=FWD_ALPHA * 2, color=FWD_COLOR)
         ax.fill_between(t, slopes, 0, where=slopes < 0,
-                        alpha=0.2, color='red', label='Backward')
-        
-        ax.set_xlabel('Time (TRs)')
-        ax.set_ylabel('SODA slope')
-        ax.set_title(f'G{idx+1}) Slope ({int(isi*1000)} ms ISI)')
-        ax.legend(fontsize=7)
-    
-    fig.suptitle('Simulation 1: SODA — Ideal Case', fontsize=15, fontweight='bold')
-    fig.savefig(FIGDIR / 'sim1_ideal_case.png')
+                        alpha=BWD_ALPHA * 2, color=BWD_COLOR)
+
+        ax.set_xlabel("Time (TRs)")
+        if idx == 0:
+            ax.set_ylabel("SODA slope")
+        ax.text(0.97, 0.97, format_isi_label(isi),
+                transform=ax.transAxes, fontsize=6, ha="right", va="top",
+                color=GREY)
+        add_panel_label(ax, panel_labels_g[idx])
+
+    save_figure(fig, "sim1_ideal_case")
     plt.close()
-    print(f"✓ Saved sim1_ideal_case.png")
+    print("  Sim 1 done.")
 
 
 # =============================================================================
@@ -158,97 +153,68 @@ def sim1_ideal_case():
 
 def sim2_heterogeneous_classifiers():
     """Show how unequal classifier accuracy distorts SODA slopes."""
-    
+
     params = ResponseParams()
     n_items = 5
     n_trs = 13
     t = np.arange(1, n_trs + 1, dtype=float)
-    isi = 0.128  # 128 ms — moderate speed where effects are visible
+    isi = 0.128
     rng = np.random.default_rng(42)
-    
-    fig, axes = plt.subplots(2, 3, figsize=(16, 10))
-    
-    # Define scenarios
+    item_colors = get_item_colors(n_items)
+
+    fig, axes = plt.subplots(2, 3, figsize=(FULL_WIDTH, FULL_WIDTH * 0.55))
+
     scenarios = [
-        {
-            'name': 'Equal (ideal)',
-            'amplitudes': np.array([60, 60, 60, 60, 60], dtype=float),
-        },
-        {
-            'name': 'Gradient: best→worst',
-            'amplitudes': np.array([80, 70, 60, 50, 40], dtype=float),
-        },
-        {
-            'name': 'Gradient: worst→best',
-            'amplitudes': np.array([40, 50, 60, 70, 80], dtype=float),
-        },
-        {
-            'name': 'One outlier high (pos 1)',
-            'amplitudes': np.array([90, 50, 50, 50, 50], dtype=float),
-        },
-        {
-            'name': 'One outlier high (pos 5)',
-            'amplitudes': np.array([50, 50, 50, 50, 90], dtype=float),
-        },
-        {
-            'name': 'Random realistic',
-            'amplitudes': rng.uniform(30, 80, size=5),
-        },
+        {"name": "Equal (ideal)",           "amplitudes": np.array([60, 60, 60, 60, 60], dtype=float)},
+        {"name": "Gradient best\u2192worst", "amplitudes": np.array([80, 70, 60, 50, 40], dtype=float)},
+        {"name": "Gradient worst\u2192best", "amplitudes": np.array([40, 50, 60, 70, 80], dtype=float)},
+        {"name": "Outlier pos 1",           "amplitudes": np.array([90, 50, 50, 50, 50], dtype=float)},
+        {"name": "Outlier pos 5",           "amplitudes": np.array([50, 50, 50, 50, 90], dtype=float)},
+        {"name": "Random realistic",        "amplitudes": rng.uniform(30, 80, size=5)},
     ]
-    
-    all_slopes = {}
-    
+
+    panel_labels = ["A", "B", "C", "D", "E", "F"]
+
     for idx, scenario in enumerate(scenarios):
         row, col = divmod(idx, 3)
         ax = axes[row, col]
-        
+
         probs = simulate_heterogeneous_trial(
             n_items=n_items, isi_seconds=isi, n_trs=n_trs,
-            class_amplitudes=scenario['amplitudes'], params=params,
+            class_amplitudes=scenario["amplitudes"], params=params,
         )
         slopes = compute_slope_timecourse(probs)
-        all_slopes[scenario['name']] = slopes
-        
-        # Plot probability timecourses (thin lines) and slope (thick)
-        ax2 = ax.twinx()
+
+        # Probability timecourses — thin
         for i in range(n_items):
-            ax.plot(t, probs[i], '-', color=COLORS[i], lw=1, alpha=0.5)
-        
-        ax2.plot(t, slopes, 'ko-', lw=2.5, markersize=5, zorder=10)
-        ax2.axhline(0, color='gray', ls='--', alpha=0.5)
+            ax.plot(t, probs[i], "-", color=item_colors[i], lw=0.7, alpha=0.5)
+
+        # Slope on right axis — moderate weight
+        ax2 = ax.twinx()
+        ax2.plot(t, slopes, "o-", color=BLACK, lw=1.3, markersize=2.5, zorder=10)
+        add_zero_line(ax2)
         ax2.fill_between(t, slopes, 0, where=slopes > 0,
-                         alpha=0.15, color='blue')
+                         alpha=FWD_ALPHA, color=FWD_COLOR, zorder=5)
         ax2.fill_between(t, slopes, 0, where=slopes < 0,
-                         alpha=0.15, color='red')
-        
-        amp_str = ', '.join([f'{a:.0f}' for a in scenario['amplitudes']])
-        ax.set_title(f'{scenario["name"]}\nAmplitudes: [{amp_str}]', fontsize=9)
-        ax.set_xlabel('Time (TRs)')
-        ax.set_ylabel('Probability (%)', fontsize=9)
-        ax2.set_ylabel('SODA slope', fontsize=9)
-    
-    fig.suptitle(
-        'Simulation 2: Heterogeneous Classifier Performance (128 ms ISI)',
-        fontsize=14, fontweight='bold'
-    )
-    fig.tight_layout()
-    fig.savefig(FIGDIR / 'sim2_heterogeneous_classifiers.png')
+                         alpha=BWD_ALPHA, color=BWD_COLOR, zorder=5)
+        ax2.spines["right"].set_visible(True)
+        ax2.spines["right"].set_color(LIGHT_GREY)
+        ax2.tick_params(axis="y", colors=GREY, labelsize=6)
+        ax2.set_ylabel("Slope", fontsize=6, color=GREY)
+
+        # Scenario name inside panel top-center to avoid overlap with panel label
+        ax.text(0.5, 0.97, scenario["name"], transform=ax.transAxes,
+                fontsize=6, ha="center", va="top")
+        ax.set_xlabel("Time (TRs)", fontsize=7)
+        if col == 0:
+            ax.set_ylabel("Prob. (%)", fontsize=7)
+        ax.tick_params(labelsize=6)
+        add_panel_label(ax, panel_labels[idx])
+
+    fig.subplots_adjust(hspace=0.45, wspace=0.50)
+    save_figure(fig, "sim2_heterogeneous_classifiers")
     plt.close()
-    print(f"✓ Saved sim2_heterogeneous_classifiers.png")
-    
-    # Summary comparison plot
-    fig2, ax = plt.subplots(figsize=(10, 5))
-    for name, slopes in all_slopes.items():
-        ax.plot(t, slopes, 'o-', lw=2, markersize=4, label=name)
-    ax.axhline(0, color='gray', ls='--')
-    ax.set_xlabel('Time (TRs)')
-    ax.set_ylabel('SODA slope')
-    ax.set_title('Slope comparison across classifier accuracy scenarios')
-    ax.legend(fontsize=8, loc='best')
-    fig2.tight_layout()
-    fig2.savefig(FIGDIR / 'sim2_slope_comparison.png')
-    plt.close()
-    print(f"✓ Saved sim2_slope_comparison.png")
+    print("  Sim 2 done.")
 
 
 # =============================================================================
@@ -257,106 +223,78 @@ def sim2_heterogeneous_classifiers():
 
 def sim3_multiple_events():
     """Show how multiple replay events within one window interact."""
-    
+
     params = ResponseParams(amplitude=40, baseline=20)
     n_items = 4
     n_trs = 20
     t = np.arange(1, n_trs + 1, dtype=float)
-    isi = 0.05  # 50 ms inter-item interval within replay
-    
-    fig, axes = plt.subplots(3, 3, figsize=(16, 13))
-    
+    isi = 0.05
+
+    fig, axes = plt.subplots(3, 3, figsize=(FULL_WIDTH, FULL_WIDTH * 0.78))
+
+    row_labels = ["Same direction", "Opposing direction", "Close timing"]
+
     scenarios = [
-        # Row 1: Varying number of events, same direction
-        {
-            'name': '1 event (forward)',
-            'onsets': [3.0],
-            'directions': [1],
-        },
-        {
-            'name': '2 events, same dir, 4 TR apart',
-            'onsets': [3.0, 7.0],
-            'directions': [1, 1],
-        },
-        {
-            'name': '3 events, same dir, 4 TR apart',
-            'onsets': [2.0, 6.0, 10.0],
-            'directions': [1, 1, 1],
-        },
-        # Row 2: Opposing directions
-        {
-            'name': '2 events, opposing, 4 TR apart',
-            'onsets': [3.0, 7.0],
-            'directions': [1, -1],
-        },
-        {
-            'name': '2 events, opposing, 2 TR apart',
-            'onsets': [3.0, 5.0],
-            'directions': [1, -1],
-        },
-        {
-            'name': '2 events, opposing, 6 TR apart',
-            'onsets': [3.0, 9.0],
-            'directions': [1, -1],
-        },
-        # Row 3: Close timing — cancellation
-        {
-            'name': '2 fwd events, 1 TR apart',
-            'onsets': [3.0, 4.0],
-            'directions': [1, 1],
-        },
-        {
-            'name': '2 fwd events, 2 TR apart',
-            'onsets': [3.0, 5.0],
-            'directions': [1, 1],
-        },
-        {
-            'name': '2 fwd events, 3 TR apart',
-            'onsets': [3.0, 6.0],
-            'directions': [1, 1],
-        },
+        {"onsets": [3.0],           "directions": [1],      "name": "1 fwd event"},
+        {"onsets": [3.0, 7.0],      "directions": [1, 1],   "name": "2 fwd, 4 TR"},
+        {"onsets": [2.0, 6.0, 10.0], "directions": [1, 1, 1], "name": "3 fwd, 4 TR"},
+        {"onsets": [3.0, 7.0],      "directions": [1, -1],  "name": "Fwd+bwd, 4 TR"},
+        {"onsets": [3.0, 5.0],      "directions": [1, -1],  "name": "Fwd+bwd, 2 TR"},
+        {"onsets": [3.0, 9.0],      "directions": [1, -1],  "name": "Fwd+bwd, 6 TR"},
+        {"onsets": [3.0, 4.0],      "directions": [1, 1],   "name": "2 fwd, 1 TR"},
+        {"onsets": [3.0, 5.0],      "directions": [1, 1],   "name": "2 fwd, 2 TR"},
+        {"onsets": [3.0, 6.0],      "directions": [1, 1],   "name": "2 fwd, 3 TR"},
     ]
-    
-    for idx, scenario in enumerate(scenarios):
-        row, col = divmod(idx, 3)
-        ax = axes[row, col]
-        
+
+    all_slopes_list = []
+    for scenario in scenarios:
         probs = simulate_multiple_replay_events(
             n_items=n_items, isi_seconds=isi, n_trs=n_trs,
-            event_onsets_trs=scenario['onsets'],
-            event_directions=scenario['directions'],
+            event_onsets_trs=scenario["onsets"],
+            event_directions=scenario["directions"],
             params=params,
         )
-        slopes = compute_slope_timecourse(probs)
-        
-        # Plot slopes
-        ax.plot(t, slopes, 'k-', lw=2)
+        all_slopes_list.append(compute_slope_timecourse(probs))
+    global_ymax = max(np.max(np.abs(s)) for s in all_slopes_list) * 1.15
+
+    panel_labels = ["A", "B", "C", "D", "E", "F", "G", "H", "I"]
+
+    for idx, (scenario, slopes) in enumerate(zip(scenarios, all_slopes_list)):
+        row, col = divmod(idx, 3)
+        ax = axes[row, col]
+
+        ax.plot(t, slopes, color=BLACK, lw=1.2)
         ax.fill_between(t, slopes, 0, where=slopes > 0,
-                        alpha=0.2, color='blue')
+                        alpha=FWD_ALPHA * 1.5, color=FWD_COLOR)
         ax.fill_between(t, slopes, 0, where=slopes < 0,
-                        alpha=0.2, color='red')
-        ax.axhline(0, color='gray', ls='--', alpha=0.5)
-        
-        # Mark event onsets
-        for onset, dirn in zip(scenario['onsets'], scenario['directions']):
-            marker = '▲' if dirn == 1 else '▼'
-            color = 'blue' if dirn == 1 else 'red'
-            ax.annotate(marker, xy=(onset, ax.get_ylim()[1] * 0.9),
-                       fontsize=14, color=color, ha='center')
-        
-        ax.set_title(scenario['name'], fontsize=9)
-        ax.set_xlabel('Time (TRs)')
-        ax.set_ylabel('SODA slope')
+                        alpha=BWD_ALPHA * 1.5, color=BWD_COLOR)
+        add_zero_line(ax)
+
+        # Event onset markers — smaller
+        for onset, dirn in zip(scenario["onsets"], scenario["directions"]):
+            marker = "^" if dirn == 1 else "v"
+            color = BLUE if dirn == 1 else ORANGE
+            ax.plot(onset, global_ymax * 0.82 * (1 if dirn == 1 else -1),
+                    marker=marker, color=color, markersize=6, zorder=10,
+                    markeredgecolor="none")
+
+        ax.set_ylim(-global_ymax, global_ymax)
         ax.set_xlim(0, n_trs + 1)
-    
-    fig.suptitle(
-        'Simulation 3: Multiple Replay Events — Overlapping Responses',
-        fontsize=14, fontweight='bold'
-    )
-    fig.tight_layout()
-    fig.savefig(FIGDIR / 'sim3_multiple_events.png')
+        ax.text(0.97, 0.97, scenario["name"], transform=ax.transAxes,
+                fontsize=5, ha="right", va="top", color=GREY)
+        ax.set_xlabel("Time (TRs)", fontsize=7)
+        ax.tick_params(labelsize=6)
+        if col == 0:
+            ax.set_ylabel("SODA slope", fontsize=7)
+            ax.text(-0.42, 0.5, row_labels[row], transform=ax.transAxes,
+                    fontsize=6, fontweight="bold", rotation=90,
+                    va="center", ha="center", color=GREY)
+        add_panel_label(ax, panel_labels[idx])
+
+    fig.subplots_adjust(hspace=0.45, wspace=0.35, left=0.10)
+    save_figure(fig, "sim3_multiple_events")
     plt.close()
-    print(f"✓ Saved sim3_multiple_events.png")
+    print("  Sim 3 done.")
 
 
 # =============================================================================
@@ -365,21 +303,25 @@ def sim3_multiple_events():
 
 def sim4_trial_averaging():
     """Show how trial averaging with jittered onsets kills the signal."""
-    
+
     params = ResponseParams(amplitude=40, baseline=20)
     n_items = 4
     n_trs = 15
     t = np.arange(1, n_trs + 1, dtype=float)
-    
+
     jitter_levels = [0.0, 0.5, 1.0, 2.0, 3.0, 5.0]
     n_trials = 30
-    
-    fig, axes = plt.subplots(2, 3, figsize=(16, 10))
-    
+
+    fig = plt.figure(figsize=(FULL_WIDTH, FULL_WIDTH * 0.85))
+    gs = gridspec.GridSpec(3, 3, hspace=0.50, wspace=0.35,
+                           height_ratios=[1, 1, 0.8])
+
+    panel_labels = ["A", "B", "C", "D", "E", "F"]
+
     for idx, jitter_sd in enumerate(jitter_levels):
         row, col = divmod(idx, 3)
-        ax = axes[row, col]
-        
+        ax = fig.add_subplot(gs[row, col])
+
         _, onsets, all_slopes = simulate_trial_averaging(
             n_trials=n_trials, n_items=n_items,
             isi_seconds=0.05, n_trs=n_trs,
@@ -387,40 +329,34 @@ def sim4_trial_averaging():
             params=params, noise_sd=1.0,
             rng=np.random.default_rng(42),
         )
-        
-        # Plot individual trial slopes (light)
-        for trial in range(min(n_trials, 15)):
-            ax.plot(t, all_slopes[trial], '-', color='gray', alpha=0.15, lw=0.5)
-        
-        # Plot mean slope (bold)
+
+        # Individual trial slopes — very light
+        for trial in range(min(n_trials, 20)):
+            ax.plot(t, all_slopes[trial], "-", color=LIGHT_GREY,
+                    alpha=0.20, lw=0.4)
+
         mean_slopes = np.mean(all_slopes, axis=0)
         sem_slopes = np.std(all_slopes, axis=0) / np.sqrt(n_trials)
-        
-        ax.plot(t, mean_slopes, 'k-', lw=2.5)
-        ax.fill_between(t, mean_slopes - sem_slopes, mean_slopes + sem_slopes,
-                        alpha=0.3, color='steelblue')
-        ax.axhline(0, color='gray', ls='--', alpha=0.5)
-        
-        # Peak-to-peak of average as metric
-        ptp = np.ptp(mean_slopes)
-        ax.set_title(f'Jitter SD = {jitter_sd:.1f} TRs\n'
-                     f'Peak-to-peak: {ptp:.3f}', fontsize=10)
-        ax.set_xlabel('Time (TRs)')
-        ax.set_ylabel('SODA slope')
-    
-    fig.suptitle(
-        f'Simulation 4: Trial Averaging with Onset Jitter ({n_trials} trials)',
-        fontsize=14, fontweight='bold'
-    )
-    fig.tight_layout()
-    fig.savefig(FIGDIR / 'sim4_trial_averaging.png')
-    plt.close()
-    print(f"✓ Saved sim4_trial_averaging.png")
-    
-    # Summary: peak-to-peak vs jitter
-    fig2, ax = plt.subplots(figsize=(8, 5))
-    ptps = []
+
+        ax.fill_between(t, mean_slopes - sem_slopes,
+                        mean_slopes + sem_slopes,
+                        alpha=0.25, color=BLUE)
+        ax.plot(t, mean_slopes, color=BLACK, lw=1.5)
+        add_zero_line(ax)
+
+        ax.text(0.97, 0.97, f"Jitter SD = {jitter_sd:.1f}",
+                transform=ax.transAxes, fontsize=6, ha="right", va="top",
+                color=GREY)
+        ax.set_xlabel("Time (TRs)", fontsize=7)
+        ax.tick_params(labelsize=6)
+        if col == 0:
+            ax.set_ylabel("SODA slope", fontsize=7)
+        add_panel_label(ax, panel_labels[idx])
+
+    # --- Panel G: Degradation curve ---
+    ax_g = fig.add_subplot(gs[2, :2])
     jitters = np.linspace(0, 6, 25)
+    ptps = []
     for j in jitters:
         _, _, all_slopes = simulate_trial_averaging(
             n_trials=50, n_items=4, isi_seconds=0.05, n_trs=n_trs,
@@ -428,39 +364,126 @@ def sim4_trial_averaging():
             rng=np.random.default_rng(42),
         )
         ptps.append(np.ptp(np.mean(all_slopes, axis=0)))
-    
-    ax.plot(jitters, ptps, 'ko-', lw=2)
-    ax.set_xlabel('Onset jitter SD (TRs)')
-    ax.set_ylabel('Peak-to-peak of averaged slope')
-    ax.set_title('Signal degradation with increasing onset jitter')
-    ax.axhline(0, color='gray', ls='--')
-    fig2.tight_layout()
-    fig2.savefig(FIGDIR / 'sim4_jitter_degradation.png')
+
+    ax_g.plot(jitters, ptps, "o-", color=BLACK, lw=1.5, markersize=3)
+    add_zero_line(ax_g)
+    ax_g.set_xlabel("Onset jitter SD (TRs)", fontsize=8)
+    ax_g.set_ylabel("Peak-to-peak", fontsize=8)
+    ax_g.tick_params(labelsize=6)
+    add_panel_label(ax_g, "G", fontsize=10)
+
+    save_figure(fig, "sim4_trial_averaging")
     plt.close()
-    print(f"✓ Saved sim4_jitter_degradation.png")
+    print("  Sim 4 done.")
+
+
+# =============================================================================
+# Sequentiality illustration figure (Figure 0)
+# =============================================================================
+
+def fig0_sequentiality_illustration():
+    """Create the conceptual sequentiality illustration (Figure 0)."""
+    params = ResponseParams(amplitude=40, baseline=5, wavelength=5.26,
+                            onset_delay=0.56)
+    n_items = 6
+    isi = 0.5
+    n_trs = 10
+    t_fine = np.linspace(0.5, n_trs + 0.5, 300)
+    item_colors = get_item_colors(n_items)
+
+    probs = multi_item_response(t_fine, n_items, isi_seconds=isi,
+                                stimulus_duration=0.1, tr=1.25, params=params)
+
+    tr_fwd = 3.5
+    tr_bwd = 7.5
+
+    fig = plt.figure(figsize=(FULL_WIDTH, FULL_WIDTH * 0.35))
+    gs = gridspec.GridSpec(1, 3, width_ratios=[2.5, 1, 1], wspace=0.45)
+
+    # --- Panel A ---
+    ax_a = fig.add_subplot(gs[0, 0])
+    for i in range(n_items):
+        ax_a.plot(t_fine, probs[i], color=item_colors[i], lw=1.2,
+                  label=f"Event {i+1}")
+
+    for tr_sample in [tr_fwd, tr_bwd]:
+        ax_a.axvline(tr_sample, color=GREY, lw=0.6, ls=":", alpha=0.5)
+        ax_a.axvspan(tr_sample - 0.25, tr_sample + 0.25, alpha=0.06,
+                     color=GREY, zorder=0)
+
+    ax_a.set_xlabel("Time (in TRs; 1 TR = 1.25 s)", fontsize=7)
+    ax_a.set_ylabel("Probability (%)", fontsize=7)
+    ax_a.legend(fontsize=5, loc="upper right", ncol=3, handlelength=1.0,
+                columnspacing=0.6, borderpad=0.3)
+    add_panel_label(ax_a, "A")
+
+    from scipy import stats as sp_stats
+
+    # --- Panel B ---
+    ax_b = fig.add_subplot(gs[0, 1])
+    idx_fwd = np.argmin(np.abs(t_fine - tr_fwd))
+    probs_fwd = probs[:, idx_fwd]
+    positions = np.arange(n_items, 0, -1)
+
+    for i in range(n_items):
+        ax_b.scatter(positions[i], probs_fwd[i], color=item_colors[i],
+                     s=30, zorder=5, edgecolors=BLACK, linewidth=0.3)
+
+    slope_val, intercept, _, _, _ = sp_stats.linregress(positions, probs_fwd)
+    x_line = np.array([positions.min(), positions.max()])
+    ax_b.plot(x_line, slope_val * x_line + intercept, color=BLACK, lw=1.0)
+    ax_b.set_xlabel("Serial position", fontsize=7)
+    ax_b.set_ylabel("Prob. (%)", fontsize=7)
+    ax_b.set_title("Forward", fontsize=8, pad=8)
+    ax_b.tick_params(labelsize=6)
+    add_panel_label(ax_b, "B", x=-0.25)
+
+    # --- Panel C ---
+    ax_c = fig.add_subplot(gs[0, 2])
+    idx_bwd = np.argmin(np.abs(t_fine - tr_bwd))
+    probs_bwd = probs[:, idx_bwd]
+
+    for i in range(n_items):
+        ax_c.scatter(positions[i], probs_bwd[i], color=item_colors[i],
+                     s=30, zorder=5, edgecolors=BLACK, linewidth=0.3)
+
+    slope_val2, intercept2, _, _, _ = sp_stats.linregress(positions, probs_bwd)
+    ax_c.plot(x_line, slope_val2 * x_line + intercept2, color=BLACK, lw=1.0)
+    ax_c.set_xlabel("Serial position", fontsize=7)
+    ax_c.set_ylabel("Prob. (%)", fontsize=7)
+    ax_c.set_title("Backward", fontsize=8, pad=8)
+    ax_c.tick_params(labelsize=6)
+    add_panel_label(ax_c, "C", x=-0.25)
+
+    save_figure(fig, "sequentiality_illustration")
+    plt.close()
+    print("  Figure 0 (sequentiality illustration) done.")
 
 
 # =============================================================================
 # Run all simulations
 # =============================================================================
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("=" * 60)
     print("SODA Primer Simulations")
     print("=" * 60)
-    
+
+    print("\n--- Figure 0: Sequentiality illustration ---")
+    fig0_sequentiality_illustration()
+
     print("\n--- Simulation 1: Ideal case ---")
     sim1_ideal_case()
-    
+
     print("\n--- Simulation 2: Heterogeneous classifiers ---")
     sim2_heterogeneous_classifiers()
-    
+
     print("\n--- Simulation 3: Multiple replay events ---")
     sim3_multiple_events()
-    
+
     print("\n--- Simulation 4: Trial averaging ---")
     sim4_trial_averaging()
-    
+
     print("\n" + "=" * 60)
-    print(f"All figures saved to {FIGDIR.resolve()}")
+    print("All figures saved to Figures/")
     print("=" * 60)

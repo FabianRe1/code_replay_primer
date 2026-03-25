@@ -31,14 +31,14 @@ from soda import compute_slope_timecourse
 from aggregation import (
     compute_all_metrics, METRIC_NAMES, METRIC_LABELS,
 )
+from viz_style import (
+    setup_style, add_panel_label, save_figure, annotated_heatmap,
+    make_diverging_cmap, FIGURES_DIR, FULL_WIDTH, ONE_HALF_COL,
+    BLUE, ORANGE, BLACK, GREY, get_item_colors, add_zero_line,
+    metric_label, metric_color,
+)
 
-FIGDIR = Path(__file__).parent.parent / "figures"
-FIGDIR.mkdir(exist_ok=True)
-
-plt.rcParams.update({
-    'font.size': 10, 'axes.labelsize': 11, 'axes.titlesize': 11,
-    'figure.dpi': 150, 'savefig.dpi': 300, 'savefig.bbox': 'tight',
-})
+setup_style()
 
 
 # =====================================================================
@@ -135,8 +135,8 @@ def dprime(sig, null):
 def run_normalization_comparison(n_trials=50, seed=42):
     """
     Compare normalization strategies across levels of classifier heterogeneity.
-    
-    For each heterogeneity level × normalization strategy:
+
+    For each heterogeneity level x normalization strategy:
       - Simulate signal and null trials
       - Apply normalization to probabilities
       - Compute SODA slopes on normalized probabilities
@@ -233,40 +233,48 @@ def plot_normalization_by_metric(het_sds, results, focus_metrics):
     """One panel per metric, lines = normalization strategies."""
 
     norm_colors = {
-        'None (raw)': '#333333',
-        'Z-score per class': '#e41a1c',
-        'Min-max per class': '#377eb8',
-        'Rank per TR': '#4daf4a',
-        'Divide by peak': '#ff7f00',
+        'None (raw)': BLACK,
+        'Z-score per class': '#E31A1C',
+        'Min-max per class': BLUE,
+        'Rank per TR': '#238B45',
+        'Divide by peak': ORANGE,
+    }
+    norm_linestyles = {
+        'None (raw)': '-',
+        'Z-score per class': '--',
+        'Min-max per class': '-',
+        'Rank per TR': '-.',
+        'Divide by peak': ':',
     }
 
     n_metrics = len(focus_metrics)
-    fig, axes = plt.subplots(1, n_metrics, figsize=(4 * n_metrics, 5), sharey=True)
+    fig, axes = plt.subplots(1, n_metrics, figsize=(FULL_WIDTH, FULL_WIDTH * 0.38),
+                             sharey=True)
 
-    for ax, metric in zip(axes, focus_metrics):
+    panel_labels = ['A', 'B', 'C', 'D']
+    for idx, (ax, metric) in enumerate(zip(axes, focus_metrics)):
         for norm_name in NORMALIZATIONS:
-            ax.plot(het_sds, results[norm_name][metric], 'o-', lw=2,
-                    markersize=5, color=norm_colors[norm_name], label=norm_name)
-        ax.axhline(0, color='gray', ls='--', alpha=0.5)
+            ax.plot(het_sds, results[norm_name][metric],
+                    marker='o', ls=norm_linestyles[norm_name], lw=1.5,
+                    markersize=4, color=norm_colors[norm_name], label=norm_name)
+        add_zero_line(ax)
         ax.set_xlabel('Classifier amplitude SD')
-        ax.set_title(METRIC_LABELS.get(metric, metric).replace('\n', ' '),
-                     fontsize=10)
-        ax.spines[['top', 'right']].set_visible(False)
+        # Metric name inside panel, bottom-right to avoid data overlap
+        ax.text(0.97, 0.03, METRIC_LABELS.get(metric, metric).replace('\n', ' '),
+                transform=ax.transAxes, fontsize=6, ha='right', va='bottom',
+                color=GREY)
+        add_panel_label(ax, panel_labels[idx])
 
     axes[0].set_ylabel("d' (sensitivity)")
-    axes[-1].legend(fontsize=7, loc='best', title='Normalization')
+    axes[-1].legend(loc='best', title='Normalization', title_fontsize=7)
 
-    fig.suptitle("Effect of Probability Normalization on SODA Sensitivity\n"
-                 "across Classifier Heterogeneity Levels",
-                 fontsize=13, fontweight='bold')
     fig.tight_layout()
-    fig.savefig(FIGDIR / 'sim6_normalization_by_metric.png', dpi=300)
+    save_figure(fig, 'sim6_normalization_by_metric')
     plt.close()
-    print(f"✓ Saved sim6_normalization_by_metric.png")
 
 
 def plot_normalization_summary_heatmap(het_sds, results, focus_metrics):
-    """Heatmap: normalization × metric, at a representative heterogeneity level."""
+    """Heatmap: normalization x metric, at a representative heterogeneity level."""
 
     # Pick het_sd = 15 as representative high-heterogeneity case
     het_idx = 3  # index for SD=15
@@ -278,27 +286,20 @@ def plot_normalization_summary_heatmap(het_sds, results, focus_metrics):
         for j, metric in enumerate(focus_metrics):
             data[i, j] = results[norm_name][metric][het_idx]
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    im = ax.imshow(data, aspect='auto', cmap='RdYlGn', vmin=-0.5, vmax=1.5)
+    col_labels = [METRIC_LABELS.get(m, m).replace('\n', ' ') for m in focus_metrics]
 
-    ax.set_yticks(range(len(norm_names)))
-    ax.set_yticklabels(norm_names)
-    ax.set_xticks(range(len(focus_metrics)))
-    ax.set_xticklabels([METRIC_LABELS.get(m, m).replace('\n', ' ')
-                        for m in focus_metrics], rotation=20, ha='right')
+    fig, ax = plt.subplots(figsize=(ONE_HALF_COL, ONE_HALF_COL * 0.7))
 
-    for i in range(len(norm_names)):
-        for j in range(len(focus_metrics)):
-            color = 'white' if data[i, j] > 1.0 or data[i, j] < -0.2 else 'black'
-            ax.text(j, i, f'{data[i,j]:.2f}', ha='center', va='center',
-                    fontsize=10, fontweight='bold', color=color)
+    im = annotated_heatmap(ax, data, norm_names, col_labels)
+    cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+    cbar.set_label("d' (sensitivity)", fontsize=8)
+    cbar.ax.tick_params(labelsize=7)
 
-    plt.colorbar(im, label="d' (sensitivity)")
-    ax.set_title(f"Normalization × Metric Sensitivity (classifier SD = {het_sds[het_idx]})")
+    # No set_title to avoid overlap with panel label
+
     fig.tight_layout()
-    fig.savefig(FIGDIR / 'sim6_normalization_heatmap.png', dpi=300)
+    save_figure(fig, 'sim6_normalization_heatmap')
     plt.close()
-    print(f"✓ Saved sim6_normalization_heatmap.png")
 
 
 def plot_example_normalization_effect():
@@ -319,42 +320,47 @@ def plot_example_normalization_effect():
     probs += rng.normal(0, 2.0, probs.shape)
     probs = np.clip(probs, 0, 100)
 
-    fig, axes = plt.subplots(2, 3, figsize=(16, 9))
+    fig, axes = plt.subplots(2, 3, figsize=(FULL_WIDTH, FULL_WIDTH * 0.62))
     axes = axes.flatten()
 
-    item_colors = plt.cm.Set2(np.linspace(0, 1, 8))[:n_items]
+    item_colors = get_item_colors(n_items)
+    panel_labels = ['A', 'B', 'C', 'D', 'E']
 
     for idx, (norm_name, norm_fn) in enumerate(NORMALIZATIONS.items()):
         ax = axes[idx]
         normed = norm_fn(probs)
 
         for i in range(n_items):
-            ax.plot(t, normed[i], 'o-', color=item_colors[i], lw=1.5,
-                    markersize=4, label=f'Item {i+1} (A={class_amps[i]:.0f})')
+            ax.plot(t, normed[i], 'o-', color=item_colors[i], lw=1.2,
+                    markersize=3, label=f'Item {i+1} (A={class_amps[i]:.0f})')
 
         slopes = compute_slope_timecourse(normed)
 
         ax2 = ax.twinx()
-        ax2.plot(t, slopes, 'k-', lw=2.5, alpha=0.7)
-        ax2.fill_between(t, slopes, 0, where=slopes > 0, alpha=0.1, color='blue')
-        ax2.fill_between(t, slopes, 0, where=slopes < 0, alpha=0.1, color='red')
-        ax2.set_ylabel('SODA slope', fontsize=8, color='gray')
+        ax2.plot(t, slopes, color=BLACK, lw=1.2, alpha=0.6)
+        ax2.fill_between(t, slopes, 0, where=slopes > 0, alpha=0.10, color=BLUE)
+        ax2.fill_between(t, slopes, 0, where=slopes < 0, alpha=0.10, color=ORANGE)
+        ax2.set_ylabel('SODA slope', fontsize=7, color=GREY)
+        ax2.tick_params(axis='y', labelsize=7, colors=GREY)
+        # Keep right spine visible for twin axis but style it
+        ax2.spines['right'].set_visible(True)
+        ax2.spines['right'].set_color(GREY)
+        ax2.spines['right'].set_linewidth(0.5)
+        ax2.spines['top'].set_visible(False)
 
-        ax.set_title(norm_name, fontsize=10)
-        ax.set_xlabel('Time (TRs)')
+        ax.set_title(norm_name, fontsize=7, pad=3)
+        ax.set_xlabel('Time (TRs)', fontsize=7)
+        ax.tick_params(labelsize=6)
         if idx == 0:
-            ax.legend(fontsize=6, loc='upper right')
+            ax.legend(fontsize=4.5, loc='upper right', handlelength=1.0)
+        add_panel_label(ax, panel_labels[idx], fontsize=10)
 
     # Hide the 6th panel
     axes[5].axis('off')
 
-    fig.suptitle("Effect of Normalization on Probability Timecourses\n"
-                 "Heterogeneous classifiers: amplitudes = [75, 55, 40, 30, 60]",
-                 fontsize=13, fontweight='bold')
     fig.tight_layout()
-    fig.savefig(FIGDIR / 'sim6_example_normalization.png', dpi=300)
+    save_figure(fig, 'sim6_example_normalization')
     plt.close()
-    print(f"✓ Saved sim6_example_normalization.png")
 
 
 # =====================================================================

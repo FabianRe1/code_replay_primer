@@ -49,14 +49,12 @@ from aggregation import (
     mean_slope, abs_mean, slope_variance, peak_to_trough,
     fit_windowed_sinusoid, METRIC_LABELS,
 )
+from viz_style import (
+    setup_style, add_panel_label, save_figure, get_metric_colors, metric_color,
+    FIGURES_DIR, FULL_WIDTH, BLUE, ORANGE, BLACK, GREY,
+)
 
-FIGDIR = Path(__file__).parent.parent / "figures"
-FIGDIR.mkdir(exist_ok=True)
-
-plt.rcParams.update({
-    'font.size': 10, 'axes.labelsize': 11, 'axes.titlesize': 12,
-    'figure.dpi': 150, 'savefig.dpi': 300, 'savefig.bbox': 'tight',
-})
+setup_style()
 
 
 # =====================================================================
@@ -368,126 +366,140 @@ def run_comparison(n_trials=40, seed=42):
 
 def plot_comparison(jitter_sds, results, metric_names):
     """Main comparison plot."""
-    
-    colors = {
-        'mean_slope': '#999999',
-        'abs_mean': '#fc8d62',
-        'peak_to_trough': '#66c2a5',
-        'variance': '#8da0cb',
-        'template_corr': '#e7298a',
-        'template_corr_optlag': '#d62728',
-        'log10_bf': '#1f77b4',
-    }
-    
+
+    # Group metrics by type
+    simple_metrics = ['mean_slope', 'abs_mean', 'peak_to_trough', 'variance']
+    template_metrics = ['template_corr', 'template_corr_optlag']
+    bayes_metrics = ['log10_bf']
+
     labels = {
-        'mean_slope': 'Mean slope (naive)',
+        'mean_slope': 'Mean slope',
         'abs_mean': '|Slope| mean',
         'peak_to_trough': 'Peak-to-trough',
         'variance': 'Slope variance',
-        'template_corr': 'Template corr (fixed onset)',
-        'template_corr_optlag': 'Template corr (optimal lag)',
-        'log10_bf': 'Bayes factor (log₁₀ BF)',
+        'template_corr': 'Template corr (fixed)',
+        'template_corr_optlag': 'Template corr (opt. lag)',
+        'log10_bf': 'Bayes factor (log10 BF)',
     }
-    
-    fig, ax = plt.subplots(figsize=(12, 7))
-    
-    for m in metric_names:
-        ls = '--' if m in ['mean_slope', 'abs_mean', 'peak_to_trough', 'variance'] else '-'
-        lw = 1.5 if ls == '--' else 2.5
-        ax.plot(jitter_sds, results[m], 'o-', lw=lw, markersize=6,
-                color=colors[m], label=labels[m], linestyle=ls)
-    
-    ax.axhline(0, color='gray', ls='--', alpha=0.5)
+
+    fig, ax = plt.subplots(figsize=(FULL_WIDTH * 1.6, FULL_WIDTH * 1.0))
+
+    # Simple metrics: thin dashed grey lines — label only the first one
+    for i, m in enumerate(simple_metrics):
+        if m in metric_names:
+            lbl = 'Simple metrics' if i == 0 else '_nolegend_'
+            ax.plot(jitter_sds, results[m], ls='--', lw=0.7, markersize=2.5,
+                    marker='o', color=GREY, alpha=0.5, label=lbl)
+
+    # Template methods: solid orange
+    template_markers = ['s', 'D']
+    for i, m in enumerate(template_metrics):
+        if m in metric_names:
+            ax.plot(jitter_sds, results[m], ls='-', lw=1.3,
+                    marker=template_markers[i], markersize=3.5,
+                    color=ORANGE, label=labels[m])
+
+    # Bayes: solid blue
+    for m in bayes_metrics:
+        if m in metric_names:
+            ax.plot(jitter_sds, results[m], ls='-', lw=1.3,
+                    marker='^', markersize=3.5, color=BLUE, label=labels[m])
+
+    ax.axhline(0, color=GREY, ls='--', lw=0.5, alpha=0.5)
     ax.set_xlabel('Onset jitter SD (TRs)')
-    ax.set_ylabel("d' (sensitivity)")
-    ax.set_title("Replay Detection: Template Matching & Bayesian Model Comparison\n"
-                 "vs existing metrics (amp=35, noise=4, 5 items)")
-    ax.legend(fontsize=9, loc='best')
-    ax.spines[['top', 'right']].set_visible(False)
-    
+    ax.set_ylabel("d\u2032 (sensitivity)")
+    ax.legend(fontsize=6, loc='upper right', ncol=1, handlelength=1.5)
+
+    add_panel_label(ax, 'A')
     fig.tight_layout()
-    fig.savefig(FIGDIR / 'sim8_template_bayes_comparison.png')
+    save_figure(fig, 'sim8_template_bayes_comparison')
     plt.close()
-    print(f"✓ Saved sim8_template_bayes_comparison.png")
 
 
 def plot_example_template_matching():
     """Show template matching on an example trial."""
-    
+
     params = ResponseParams(amplitude=35.0, baseline=20.0)
     rng = np.random.default_rng(42)
     n_items, n_trs = 5, 13
-    
+
     # Signal trial with onset at TR 2
     slopes_sig, trs = simulate_trial(True, n_items, n_trs, params,
                                      noise_sd=3.0, onset_tr=2.0, rng=rng)
     # Null trial
     slopes_null, _ = simulate_trial(False, n_items, n_trs, params,
-                                   noise_sd=3.0, rng=rng)
-    
+                                    noise_sd=3.0, rng=rng)
+
     # Template at different lags
     opt_sig = template_correlation_optimal_lag(slopes_sig, n_items=n_items)
     opt_null = template_correlation_optimal_lag(slopes_null, n_items=n_items)
-    
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    
+
+    fig, axes = plt.subplots(2, 2, figsize=(FULL_WIDTH * 2, FULL_WIDTH * 1.5))
+
     # Panel A: Signal trial with best-matching template
     ax = axes[0, 0]
-    ax.plot(trs, slopes_sig, 'ko-', lw=2, markersize=5, label='Observed slopes')
+    ax.plot(trs, slopes_sig, 'o-', color=BLACK, lw=1.5, markersize=4,
+            label='Observed slopes')
     best_template = generate_soda_template(n_trs=n_trs, n_items=n_items,
-                                            onset_tr=opt_sig['best_lag'])
-    # Scale template to data range for visualization
+                                           onset_tr=opt_sig['best_lag'])
     scale = np.std(slopes_sig) / (np.std(best_template) + 1e-10)
-    ax.plot(trs, best_template * scale + np.mean(slopes_sig), 'r-', lw=2,
-            alpha=0.7, label=f'Best template (lag={opt_sig["best_lag"]:.1f})')
-    ax.set_title(f'A) Signal trial — r={opt_sig["best_correlation"]:.3f}')
+    ax.plot(trs, best_template * scale + np.mean(slopes_sig), '-', color=ORANGE,
+            lw=1.8, alpha=0.8,
+            label=f'Best template (lag={opt_sig["best_lag"]:.1f})')
+    ax.text(0.97, 0.97, f'Signal trial \u2014 r = {opt_sig["best_correlation"]:.3f}',
+            transform=ax.transAxes, fontsize=7, ha='right', va='top')
     ax.set_xlabel('Time (TRs)')
     ax.set_ylabel('SODA slope')
-    ax.legend(fontsize=8)
-    
+    ax.legend(fontsize=6, loc='lower right')
+    add_panel_label(ax, 'A')
+
     # Panel B: Null trial with best-matching template
     ax = axes[0, 1]
-    ax.plot(trs, slopes_null, 'ko-', lw=2, markersize=5, label='Observed slopes')
+    ax.plot(trs, slopes_null, 'o-', color=BLACK, lw=1.0, markersize=3,
+            label='Observed slopes')
     best_template_null = generate_soda_template(n_trs=n_trs, n_items=n_items,
-                                                 onset_tr=opt_null['best_lag'])
+                                                onset_tr=opt_null['best_lag'])
     scale_n = np.std(slopes_null) / (np.std(best_template_null) + 1e-10)
-    ax.plot(trs, best_template_null * scale_n + np.mean(slopes_null), 'r-', lw=2,
-            alpha=0.7, label=f'Best template (lag={opt_null["best_lag"]:.1f})')
-    ax.set_title(f'B) Null trial — r={opt_null["best_correlation"]:.3f}')
+    ax.plot(trs, best_template_null * scale_n + np.mean(slopes_null), '-',
+            color=ORANGE, lw=1.2, alpha=0.8,
+            label=f'Best template (lag={opt_null["best_lag"]:.1f})')
+    ax.text(0.97, 0.97, f'Null trial \u2014 r = {opt_null["best_correlation"]:.3f}',
+            transform=ax.transAxes, fontsize=7, ha='right', va='top')
     ax.set_xlabel('Time (TRs)')
     ax.set_ylabel('SODA slope')
-    ax.legend(fontsize=8)
-    
+    ax.legend(fontsize=6, loc='lower right')
+    add_panel_label(ax, 'B')
+
     # Panel C: Correlation as function of lag (signal)
     ax = axes[1, 0]
-    ax.plot(opt_sig['lags'], opt_sig['all_correlations'], 'r-', lw=2)
-    ax.axvline(opt_sig['best_lag'], color='red', ls='--', alpha=0.5)
-    ax.axhline(0, color='gray', ls='--', alpha=0.5)
+    ax.plot(opt_sig['lags'], opt_sig['all_correlations'], '-', color=ORANGE, lw=1.0)
+    ax.axvline(opt_sig['best_lag'], color=ORANGE, ls='--', lw=0.6, alpha=0.5)
+    ax.axhline(0, color=GREY, ls='--', lw=0.5, alpha=0.5)
     ax.set_xlabel('Template onset lag (TRs)')
     ax.set_ylabel('Correlation')
-    ax.set_title('C) Template-data correlation across lags (signal)')
-    
+    ax.text(0.97, 0.97, 'Lags (signal)', transform=ax.transAxes,
+            fontsize=7, ha='right', va='top', color=GREY)
+    add_panel_label(ax, 'C')
+
     # Panel D: Correlation as function of lag (null)
     ax = axes[1, 1]
-    ax.plot(opt_null['lags'], opt_null['all_correlations'], 'b-', lw=2)
-    ax.axvline(opt_null['best_lag'], color='blue', ls='--', alpha=0.5)
-    ax.axhline(0, color='gray', ls='--', alpha=0.5)
+    ax.plot(opt_null['lags'], opt_null['all_correlations'], '-', color=BLUE, lw=1.0)
+    ax.axvline(opt_null['best_lag'], color=BLUE, ls='--', lw=0.6, alpha=0.5)
+    ax.axhline(0, color=GREY, ls='--', lw=0.5, alpha=0.5)
     ax.set_xlabel('Template onset lag (TRs)')
     ax.set_ylabel('Correlation')
-    ax.set_title('D) Template-data correlation across lags (null)')
-    
+    ax.text(0.97, 0.97, 'Lags (null)', transform=ax.transAxes,
+            fontsize=7, ha='right', va='top', color=GREY)
+    add_panel_label(ax, 'D')
+
     # Match y-axes for C and D
     ymin = min(axes[1, 0].get_ylim()[0], axes[1, 1].get_ylim()[0])
     ymax = max(axes[1, 0].get_ylim()[1], axes[1, 1].get_ylim()[1])
     axes[1, 0].set_ylim(ymin, ymax)
     axes[1, 1].set_ylim(ymin, ymax)
-    
-    fig.suptitle('Template Matching: Example Signal vs Null Trial',
-                 fontsize=14, fontweight='bold')
     fig.tight_layout()
-    fig.savefig(FIGDIR / 'sim8_template_example.png')
+    save_figure(fig, 'sim8_template_example')
     plt.close()
-    print(f"✓ Saved sim8_template_example.png")
 
 
 # =====================================================================

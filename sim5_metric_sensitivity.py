@@ -29,14 +29,34 @@ from soda import compute_slope_timecourse
 from aggregation import (
     compute_all_metrics, METRIC_NAMES, METRIC_LABELS,
 )
+from viz_style import (
+    setup_style, add_panel_label, save_figure, get_metric_colors,
+    metric_color, metric_label, add_zero_line, annotated_heatmap,
+    make_diverging_cmap, FIGURES_DIR, FULL_WIDTH, BLUE, ORANGE, BLACK, GREY,
+)
 
-FIGDIR = Path(__file__).parent.parent / "figures"
-FIGDIR.mkdir(exist_ok=True)
+setup_style()
 
-plt.rcParams.update({
-    'font.size': 10, 'axes.labelsize': 11, 'axes.titlesize': 11,
-    'figure.dpi': 150, 'savefig.dpi': 300, 'savefig.bbox': 'tight',
-})
+# Mapping from aggregation.py metric keys to viz_style metric keys
+_AGG_TO_VIZ = {
+    'mean_slope': 'mean_slope',
+    'abs_mean': 'abs_mean',
+    'variance': 'slope_variance',
+    'peak_to_trough': 'peak_to_trough',
+    'spectral_power': 'spectral_power',
+    'continuous_sin_amplitude': 'cont_sin_amplitude',
+    'windowed_sin_amplitude': 'win_sin_amplitude',
+}
+
+
+def _metric_color(agg_name):
+    """Get viz_style color for an aggregation metric name."""
+    return metric_color(_AGG_TO_VIZ.get(agg_name, agg_name))
+
+
+def _metric_label(agg_name):
+    """Get viz_style display label for an aggregation metric name."""
+    return metric_label(_AGG_TO_VIZ.get(agg_name, agg_name))
 
 
 # =====================================================================
@@ -296,69 +316,65 @@ def condition_D_multiple_events(n_trials=100, seed=42):
 # Plotting
 # =====================================================================
 
-METRIC_COLORS = {
-    'mean_slope': '#999999',
-    'abs_mean': '#fc8d62',
-    'variance': '#8da0cb',
-    'peak_to_trough': '#66c2a5',
-    'spectral_power': '#e78ac3',
-    'continuous_sin_amplitude': '#a6d854',
-    'windowed_sin_amplitude': '#e41a1c',
-}
-
-
-def plot_sensitivity_curves(x_values, results, xlabel, title, filename):
+def plot_sensitivity_curves(x_values, results, xlabel, title, filename,
+                            panel_label=None):
     """Plot d-prime curves for all metrics."""
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
+
+    fig, ax = plt.subplots(figsize=(FULL_WIDTH, FULL_WIDTH * 0.55))
+
     for name in METRIC_NAMES:
-        ax.plot(x_values, results[name], 'o-', lw=2, markersize=5,
-                color=METRIC_COLORS[name], label=METRIC_LABELS[name].replace('\n', ' '))
-    
-    ax.axhline(0, color='gray', ls='--', alpha=0.5)
+        ax.plot(x_values, results[name], 'o-', markersize=4,
+                color=_metric_color(name), label=_metric_label(name))
+
+    add_zero_line(ax)
     ax.set_xlabel(xlabel)
-    ax.set_ylabel("d' (sensitivity)")
-    ax.set_title(title)
-    ax.legend(fontsize=8, loc='best', ncol=2)
-    ax.spines[['top', 'right']].set_visible(False)
-    
+    ax.set_ylabel("d\u2032 (sensitivity)")
+    # Title as in-panel text to avoid overlap with panel label
+    ax.text(0.97, 0.97, title, transform=ax.transAxes, fontsize=7,
+            ha='right', va='top', color=GREY)
+    ax.legend(loc='upper left', ncol=2, fontsize=5, handlelength=1.0,
+              borderpad=0.3, labelspacing=0.2, columnspacing=0.8)
+
+    if panel_label:
+        add_panel_label(ax, panel_label)
+
     fig.tight_layout()
-    fig.savefig(FIGDIR / filename, dpi=300)
+    save_figure(fig, filename.replace('.png', ''))
     plt.close()
-    print(f"✓ Saved {filename}")
 
 
-def plot_bar_comparison(scenarios, all_results, filename):
+def plot_bar_comparison(scenarios, all_results, filename, panel_label=None):
     """Bar chart comparing metrics across event scenarios."""
-    
+
     labels = [s['label'] for s in scenarios]
     n_scenarios = len(labels)
     n_metrics = len(METRIC_NAMES)
-    
+
     x = np.arange(n_scenarios)
     width = 0.8 / n_metrics
-    
-    fig, ax = plt.subplots(figsize=(12, 6))
-    
+
+    fig, ax = plt.subplots(figsize=(FULL_WIDTH, FULL_WIDTH * 0.55))
+
     for i, name in enumerate(METRIC_NAMES):
         vals = [all_results[label][name] for label in labels]
         offset = (i - n_metrics/2 + 0.5) * width
-        ax.bar(x + offset, vals, width, color=METRIC_COLORS[name],
-               label=METRIC_LABELS[name].replace('\n', ' '), edgecolor='white', lw=0.5)
-    
+        ax.bar(x + offset, vals, width, color=_metric_color(name),
+               label=_metric_label(name), edgecolor='white', lw=0.5)
+
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
-    ax.set_ylabel("d' (sensitivity)")
-    ax.set_title("Metric Sensitivity: Single vs Multiple Replay Events")
-    ax.legend(fontsize=7, ncol=2, loc='upper right')
-    ax.axhline(0, color='gray', ls='--', alpha=0.5)
-    ax.spines[['top', 'right']].set_visible(False)
-    
+    ax.set_ylabel("d\u2032 (sensitivity)")
+    ax.text(0.97, 0.97, "Single vs multiple replay events",
+            transform=ax.transAxes, fontsize=7, ha='right', va='top', color=GREY)
+    ax.legend(ncol=2, loc='upper left', fontsize=5.5, handlelength=1.2)
+    add_zero_line(ax)
+
+    if panel_label:
+        add_panel_label(ax, panel_label)
+
     fig.tight_layout()
-    fig.savefig(FIGDIR / filename, dpi=300)
+    save_figure(fig, filename.replace('.png', ''))
     plt.close()
-    print(f"✓ Saved {filename}")
 
 
 # =====================================================================
@@ -377,62 +393,56 @@ if __name__ == '__main__':
     print("\n--- Condition A: SNR sweep ---")
     amps, res_A = condition_A_snr_sweep(n_trials=N_TRIALS)
     plot_sensitivity_curves(amps, res_A,
-                           'Signal amplitude (%)', 
-                           "A) Sensitivity vs Signal Strength (noise SD=5)",
-                           'sim5_A_snr_sweep.png')
-    
+                           'Signal amplitude (%)',
+                           "SNR sweep",
+                           'sim5_A_snr_sweep.png',
+                           panel_label='A')
+
     print("\n--- Condition B: Onset jitter ---")
     jitters, res_B = condition_B_onset_jitter(n_trials=N_TRIALS)
     plot_sensitivity_curves(jitters, res_B,
                            'Onset jitter SD (TRs)',
-                           "B) Sensitivity vs Onset Jitter (amp=30, noise=4)",
-                           'sim5_B_onset_jitter.png')
-    
+                           "Onset jitter",
+                           'sim5_B_onset_jitter.png',
+                           panel_label='B')
+
     print("\n--- Condition C: Classifier heterogeneity ---")
     hets, res_C = condition_C_heterogeneous_classifiers(n_trials=N_TRIALS)
     plot_sensitivity_curves(hets, res_C,
                            'Classifier amplitude SD',
-                           "C) Sensitivity vs Classifier Heterogeneity (mean amp=35, noise=4)",
-                           'sim5_C_heterogeneity.png')
-    
+                           "Classifier heterogeneity",
+                           'sim5_C_heterogeneity.png',
+                           panel_label='C')
+
     print("\n--- Condition D: Multiple events ---")
     scenarios, res_D = condition_D_multiple_events(n_trials=N_TRIALS)
-    plot_bar_comparison(scenarios, res_D, 'sim5_D_multiple_events.png')
-    
+    plot_bar_comparison(scenarios, res_D, 'sim5_D_multiple_events.png',
+                        panel_label='D')
+
     # ---- Summary heatmap ----
     print("\n--- Summary heatmap ---")
-    fig, ax = plt.subplots(figsize=(10, 5))
-    
-    # Collect best condition from each sweep
+    fig, ax = plt.subplots(figsize=(FULL_WIDTH, FULL_WIDTH * 0.5))
+
+    # Collect representative d' from each condition
     summary_data = np.zeros((len(METRIC_NAMES), 4))
-    condition_labels = ['SNR\n(amp=30)', 'Jitter\n(SD=1 TR)', 'Heterog.\n(SD=10)', 'Multi-event\n(fwd+bwd)']
-    
+    condition_labels = ['SNR', 'Jitter', 'Heterog.', 'Multi-event']
+    row_labels = [_metric_label(n) for n in METRIC_NAMES]
+
     for i, name in enumerate(METRIC_NAMES):
-        # Pick representative point from each condition
-        summary_data[i, 0] = res_A[name][5]  # amp=30
-        summary_data[i, 1] = res_B[name][3]  # jitter=1.0
-        summary_data[i, 2] = res_C[name][4]  # het_sd=10
+        summary_data[i, 0] = res_A[name][5]   # amp=30
+        summary_data[i, 1] = res_B[name][3]   # jitter=1.0
+        summary_data[i, 2] = res_C[name][4]   # het_sd=10
         summary_data[i, 3] = res_D['2 events fwd+bwd'][name]
-    
-    im = ax.imshow(summary_data, aspect='auto', cmap='RdYlGn', vmin=-0.5, vmax=3.0)
-    ax.set_yticks(range(len(METRIC_NAMES)))
-    ax.set_yticklabels([METRIC_LABELS[n].replace('\n', ' ') for n in METRIC_NAMES])
-    ax.set_xticks(range(4))
-    ax.set_xticklabels(condition_labels)
-    
-    # Add text annotations
-    for i in range(len(METRIC_NAMES)):
-        for j in range(4):
-            ax.text(j, i, f'{summary_data[i,j]:.2f}', ha='center', va='center',
-                   fontsize=9, fontweight='bold',
-                   color='white' if summary_data[i,j] > 2.0 or summary_data[i,j] < 0 else 'black')
-    
-    plt.colorbar(im, label="d' (sensitivity)")
-    ax.set_title("Sensitivity Summary: d' across conditions and metrics")
+
+    # Diverging blue-white-red colormap centered at 0
+    im = annotated_heatmap(ax, summary_data, row_labels, condition_labels)
+    cbar = fig.colorbar(im, ax=ax, shrink=0.8)
+    cbar.set_label("d' (sensitivity)")
+    # No set_title — the heatmap content is self-explanatory
+
     fig.tight_layout()
-    fig.savefig(FIGDIR / 'sim5_summary_heatmap.png', dpi=300)
+    save_figure(fig, 'sim5_summary_heatmap')
     plt.close()
-    print(f"✓ Saved sim5_summary_heatmap.png")
     
     print("\n" + "=" * 60)
     print("Done! All Simulation 5 figures saved.")
